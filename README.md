@@ -1,10 +1,19 @@
 # CodeToTxt
 
-A small Python package to convert code to text.
 A powerful Python package to convert code files into a single text file, perfect for feeding into Large Language
 Models (LLMs) or for easy code review and documentation.
 
 ## Features
+
+✨ **New in v0.2.0:**
+
+- 🕐 **Automatic timestamps** in output filenames
+- 📋 **Clipboard support** - copy output directly to clipboard
+- 🎯 **Better extension handling** - specify multiple extensions without repeating `-e` flag
+- 🔍 **Glob pattern support** - use patterns like `*.py` or `src/**/*.js`
+- ⚙️ **Configuration file support** - save your preferences in `.code-to-txt.yml`
+- 🚀 **Enhanced defaults** - more file types and ignore patterns out of the box
+
 **Core Features:**
 
 - 📁 Convert entire directories of code into a single text file
@@ -243,6 +252,34 @@ num_files = code_to_text.convert(
     separator="=" * 100,
 )
 ```
+
+## Default File Extensions
+
+When no extensions are specified, CodeToTxt includes these file types by default:
+
+- **Python:** `.py`
+- **JavaScript/TypeScript:** `.js`, `.ts`, `.jsx`, `.tsx`
+- **Systems:** `.c`, `.cpp`, `.h`, `.hpp`, `.java`, `.cs`, `.go`, `.rs`
+- **Web:** `.html`, `.css`, `.scss`
+- **Config:** `.yaml`, `.yml`, `.json`, `.toml`, `.xml`
+- **Documentation:** `.md`, `.txt`, `.rst`
+- **Scripts:** `.sh`, `.bash`, `.zsh`
+- **Other:** `.rb`, `.php`, `.swift`, `.kt`, `.scala`, `.r`, `.sql`
+
+## Default Ignore Patterns
+
+CodeToTxt automatically ignores common build artifacts and dependencies:
+
+- `__pycache__`, `*.pyc`, `*.pyo`, `*.pyd`
+- `.git`, `.svn`, `.hg`
+- `node_modules`
+- `.venv`, `venv`, `.env`
+- `*.egg-info`, `dist`, `build`
+- `.pytest_cache`, `.mypy_cache`, `.ruff_cache`
+- `*.so`, `*.dylib`, `*.dll`
+
+Plus any patterns in your `.gitignore` file.
+
 ## Output Format
 
 The generated file includes:
@@ -355,6 +392,17 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 MIT License - see LICENSE file for details.
 
 ## Changelog
+
+### v0.2.0
+
+- ✨ Added automatic timestamp generation for output files
+- 📋 Added clipboard support (`--clipboard` and `--clipboard-only`)
+- 🎯 Improved extension handling (space/comma separated)
+- 🔍 Added glob pattern support
+- ⚙️ Added configuration file support (`.code-to-txt.yml`)
+- 🚀 Expanded default file extensions and ignore patterns
+- 🐛 Various bug fixes and improvements
+
 ### v0.1.0
 
 - 🎉 Initial release

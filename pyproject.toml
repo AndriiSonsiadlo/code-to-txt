@@ -1,6 +1,6 @@
 [project]
 name = "code-to-txt"
-version = "0.2.0"
+version = "0.3.0"
 description = "Convert code files to a single text file for LLM consumption"
 authors = [
     { name = "Andrii Sonsiadlo", email = "andrii.sonsiadlo@gmail.com" }

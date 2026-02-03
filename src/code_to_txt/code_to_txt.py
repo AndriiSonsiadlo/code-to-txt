@@ -6,41 +6,11 @@ from typing import Any
 import pathspec
 from pathspec import PathSpec
 
+from .utils import load_patterns_from_file
+
 
 class CodeToText:
-    DEFAULT_IGNORE = {
-        "__pycache__",
-        "*.pyc",
-        "*.pyo",
-        "*.pyd",
-        ".git",
-        ".svn",
-        ".hg",
-        "node_modules",
-        ".venv",
-        "venv",
-        ".env",
-        "*.egg-info",
-        "dist",
-        "build",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "*.so",
-        "*.dylib",
-        "*.dll",
-    }
-
-    DEFAULT_EXTENSIONS = {
-        ".py", ".js", ".ts", ".jsx", ".tsx",
-        ".java", ".c", ".cpp", ".h", ".hpp",
-        ".cs", ".go", ".rs", ".rb", ".php",
-        ".swift", ".kt", ".scala", ".r",
-        ".sql", ".sh", ".bash", ".zsh",
-        ".yaml", ".yml", ".json", ".toml",
-        ".xml", ".html", ".css", ".scss",
-        ".md", ".txt", ".rst",
-    }
+    """Convert code files to a single text file for LLM consumption."""
 
     def __init__(
             self,
@@ -50,9 +20,10 @@ class CodeToText:
             exclude_patterns: list[str] | None = None,
             glob_patterns: list[str] | None = None,
             gitignore: bool = True,
+            max_file_size_kb: int | None = None,
     ):
         """
-        Initialize the instance of CodeToText.
+        Initialize CodeToText instance.
 
         Args:
             root_path: Root directory to scan
@@ -61,89 +32,188 @@ class CodeToText:
             exclude_patterns: List of patterns to exclude (gitignore style)
             glob_patterns: List of glob patterns to include (e.g., '*.py', 'src/**/*.js')
             gitignore: Whether to respect .gitignore files
+            max_file_size_kb: Skip files larger than this size in KB
         """
         self.root_path = Path(root_path).resolve()
         self.output_file = output_file
-        self.include_extensions = include_extensions or self.DEFAULT_EXTENSIONS
-        self.exclude_patterns = exclude_patterns or []
         self.glob_patterns = glob_patterns or []
         self.gitignore = gitignore
+        self.max_file_size_kb = max_file_size_kb
         self.spec: PathSpec | None = None
         self.file_count = 0
+        self.skipped_files: list[tuple[Path, str]] = []
+
+        config_dir = Path(__file__).parent
+        default_extensions = load_patterns_from_file(config_dir / ".extensions")
+        default_ignore = load_patterns_from_file(config_dir / ".ignore")
+
+        self.include_extensions = include_extensions or default_extensions
+        self.exclude_patterns = exclude_patterns or []
+        self.default_ignore = default_ignore
 
         if self.gitignore:
-            self._load_gitignore()
+            self._init_pathspec()
 
-    def _load_gitignore(self) -> None:
-        """Load .gitignore patterns if present."""
-        gitignore_path = self.root_path / ".gitignore"
-        patterns = list(self.DEFAULT_IGNORE)
+    def _init_pathspec(self) -> None:
+        """Initialize pathspec from .gitignore files and default patterns."""
+        patterns = list(self.default_ignore)
+        current_path = self.root_path
 
-        if gitignore_path.exists():
-            with open(gitignore_path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        patterns.append(line)
+        for _ in range(5):
+            gitignore_path = current_path / ".gitignore"
+            if gitignore_path.exists():
+                try:
+                    with open(gitignore_path, encoding="utf-8") as f:
+                        for line in f:
+                            clean_line = line.strip()
+                            if clean_line and not clean_line.startswith("#"):
+                                patterns.append(clean_line)
+                except Exception:
+                    pass
+
+            parent = current_path.parent
+            if parent == current_path:
+                break
+            current_path = parent
 
         patterns.extend(self.exclude_patterns)
         self.spec = pathspec.PathSpec.from_lines("gitignore", patterns)
 
-    def _matches_glob_pattern(self, file_path: Path) -> bool:
+    def _check_glob_match(self, file_path: Path) -> bool:
         """Check if file matches any glob pattern."""
         if not self.glob_patterns:
             return False
 
         relative_path = file_path.relative_to(self.root_path)
-        relative_str = str(relative_path)
+        path_str = str(relative_path)
 
         for pattern in self.glob_patterns:
-            if fnmatch(relative_str, pattern):
+            if fnmatch(path_str, pattern):
                 return True
             if fnmatch(file_path.name, pattern):
+                return True
+            if fnmatch(path_str.replace(os.sep, "/"), pattern):
                 return True
 
         return False
 
-    def _should_include_file(self, file_path: Path) -> bool:
-        """Check if a file should be included."""
+    def _check_file_inclusion(self, file_path: Path) -> bool:
+        """Determine if a file should be included in the output."""
+        if self.max_file_size_kb is not None:
+            try:
+                file_size_kb = file_path.stat().st_size / 1024
+                if file_size_kb > self.max_file_size_kb:
+                    self.skipped_files.append(
+                        (file_path, f"exceeds size limit ({file_size_kb:.1f}KB)")
+                    )
+                    return False
+            except Exception:
+                pass
+
         if self.glob_patterns:
-            if not self._matches_glob_pattern(file_path):
-                return False
-        else:
-            if file_path.suffix not in self.include_extensions:
+            if not self._check_glob_match(file_path):
                 return False
 
         if self.spec:
-            relative_path = file_path.relative_to(self.root_path)
-            if self.spec.match_file(str(relative_path)):
+            try:
+                relative_path = file_path.relative_to(self.root_path)
+                relative_str = str(relative_path).replace(os.sep, "/")
+
+                if self.spec.match_file(relative_str):
+                    self.skipped_files.append((file_path, "matches ignore pattern"))
+                    return False
+            except ValueError:
                 return False
+
+        if file_path.suffix not in self.include_extensions:
+            return False
 
         return True
 
-    def _get_files(self) -> list[Path]:
-        """Get all files to process."""
+    def _collect_files(self) -> list[Path]:
+        """Collect all files to process based on filters."""
         files = []
+        self.skipped_files = []
+
         for root, dirs, filenames in os.walk(self.root_path):
             root_path = Path(root)
 
             if self.spec:
-                relative_root = root_path.relative_to(self.root_path)
-                dirs[:] = [
-                    d for d in dirs
-                    if not self.spec.match_file(str(relative_root / d))
-                ]
+                try:
+                    relative_root = root_path.relative_to(self.root_path)
+                    root_str = str(relative_root).replace(os.sep, "/") if str(relative_root) != "." else ""
+
+                    filtered_dirs = []
+                    for d in dirs:
+                        dir_path = f"{root_str}/{d}" if root_str else d
+
+                        if not self.spec.match_file(dir_path) and not self.spec.match_file(f"{dir_path}/"):
+                            filtered_dirs.append(d)
+
+                    dirs[:] = filtered_dirs
+                except ValueError:
+                    pass
 
             for filename in filenames:
                 file_path = root_path / filename
-                if self._should_include_file(file_path):
+                if self._check_file_inclusion(file_path):
                     files.append(file_path)
 
         return sorted(files)
 
+    def calculate_statistics(self) -> dict[str, Any]:
+        """
+        Calculate statistics about the codebase.
+
+        Returns:
+            Dictionary containing total files, size, lines, breakdown by extension, etc.
+        """
+        files = self._collect_files()
+
+        stats: dict = {
+            "total_files": len(files),
+            "total_size_bytes": 0,
+            "total_lines": 0,
+            "by_extension": {},
+            "skipped_files": len(self.skipped_files),
+            "largest_files": [],
+        }
+
+        file_sizes = []
+
+        for file_path in files:
+            try:
+                size = file_path.stat().st_size
+                stats["total_size_bytes"] += size
+                file_sizes.append((file_path, size))
+
+                try:
+                    with open(file_path, encoding="utf-8") as f:
+                        lines = sum(1 for _ in f)
+                        stats["total_lines"] += lines
+                except Exception:
+                    pass
+
+                ext = file_path.suffix or "(no extension)"
+                if ext not in stats["by_extension"]:
+                    stats["by_extension"][ext] = {"count": 0, "size": 0}
+                stats["by_extension"][ext]["count"] += 1
+                stats["by_extension"][ext]["size"] += size
+
+            except Exception:
+                pass
+
+        file_sizes.sort(key=lambda x: x[1], reverse=True)
+        stats["largest_files"] = [
+            {"path": str(f.relative_to(self.root_path)), "size_kb": s / 1024}
+            for f, s in file_sizes[:10]
+        ]
+
+        return stats
+
     def generate_content(self, add_tree: bool = True, separator: str = "=" * 80) -> str:
         """
-        Generate content as string (for clipboard).
+        Generate content as string without writing to file.
 
         Args:
             add_tree: Whether to add directory tree at the beginning
@@ -152,43 +222,43 @@ class CodeToText:
         Returns:
             Generated content as string
         """
-        files = self._get_files()
+        files = self._collect_files()
         self.file_count = len(files)
 
-        lines = []
-        lines.append(f"Code Export from: {self.root_path}")
-        lines.append(f"Total files: {len(files)}")
-        lines.append(separator)
-        lines.append("")
+        output_lines = []
+        output_lines.append(f"Code Export from: {self.root_path}")
+        output_lines.append(f"Total files: {len(files)}")
+        output_lines.append(separator)
+        output_lines.append("")
 
         if add_tree:
-            lines.append("DIRECTORY TREE:")
-            lines.append(separator)
-            lines.append(self._generate_tree())
-            lines.append("")
-            lines.append(separator)
-            lines.append("")
+            output_lines.append("DIRECTORY TREE:")
+            output_lines.append(separator)
+            output_lines.append(self._build_tree_structure())
+            output_lines.append("")
+            output_lines.append(separator)
+            output_lines.append("")
 
-        for i, file_path in enumerate(files, 1):
+        for idx, file_path in enumerate(files, 1):
             relative_path = file_path.relative_to(self.root_path)
 
-            lines.append(f"FILE {i}/{len(files)}: {relative_path}")
-            lines.append(separator)
+            output_lines.append(f"FILE {idx}/{len(files)}: {relative_path}")
+            output_lines.append(separator)
 
             try:
                 with open(file_path, encoding="utf-8") as f:
                     content = f.read()
-                lines.append(content)
+                output_lines.append(content)
             except UnicodeDecodeError:
-                lines.append("[Binary file - skipped]")
+                output_lines.append("[Binary file - skipped]")
             except Exception as e:
-                lines.append(f"[Error reading file: {e}]")
+                output_lines.append(f"[Error reading file: {e}]")
 
-            lines.append("")
-            lines.append(separator)
-            lines.append("")
+            output_lines.append("")
+            output_lines.append(separator)
+            output_lines.append("")
 
-        return "\n".join(lines)
+        return "\n".join(output_lines)
 
     def convert(self, add_tree: bool = True, separator: str = "=" * 80) -> int:
         """
@@ -211,49 +281,49 @@ class CodeToText:
 
         return self.file_count
 
-    def _generate_tree(self) -> str:
-        """Generate a directory tree representation."""
-        tree_lines = []
-        files = self._get_files()
+    def _build_tree_structure(self) -> str:
+        """Build a directory tree representation of included files."""
+        tree_output = []
+        files = self._collect_files()
 
         if not files:
             return "(no files to display)"
 
-        dir_structure: dict[str, Any] = {}
+        structure: dict[str, Any] = {}
         for file_path in files:
             relative_path = file_path.relative_to(self.root_path)
             parts = relative_path.parts
 
-            current = dir_structure
+            current_level = structure
             for part in parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
+                if part not in current_level:
+                    current_level[part] = {}
+                current_level = current_level[part]
 
-            if "__files__" not in current:
-                current["__files__"] = []
-            current["__files__"].append(parts[-1])
+            if "__files__" not in current_level:
+                current_level["__files__"] = []
+            current_level["__files__"].append(parts[-1])
 
-        def print_tree(structure: dict[str, Any], prefix: str = "", is_last: bool = True) -> None:
-            items = []
-            for key in sorted(structure.keys()):
+        def render_tree(node: dict[str, Any], prefix: str = "", is_final: bool = True) -> None:
+            entries = []
+            for key in sorted(node.keys()):
                 if key != "__files__":
-                    items.append((key, True))  # directory
+                    entries.append((key, True))
 
-            if "__files__" in structure:
-                for file in sorted(structure["__files__"]):
-                    items.append((file, False))  # file
+            if "__files__" in node:
+                for file in sorted(node["__files__"]):
+                    entries.append((file, False))
 
-            for i, (name, is_dir) in enumerate(items):
-                is_last_item = i == len(items) - 1
-                connector = "└── " if is_last_item else "├── "
-                tree_lines.append(f"{prefix}{connector}{name}{'/' if is_dir else ''}")
+            for i, (name, is_directory) in enumerate(entries):
+                is_last_entry = i == len(entries) - 1
+                connector = "└── " if is_last_entry else "├── "
+                tree_output.append(f"{prefix}{connector}{name}{'/' if is_directory else ''}")
 
-                if is_dir:
-                    extension = "    " if is_last_item else "│   "
-                    print_tree(structure[name], prefix + extension, is_last_item)
+                if is_directory:
+                    extension = "    " if is_last_entry else "│   "
+                    render_tree(node[name], prefix + extension, is_last_entry)
 
-        tree_lines.append(f"{self.root_path.name}/")
-        print_tree(dir_structure)
+        tree_output.append(f"{self.root_path.name}/")
+        render_tree(structure)
 
-        return "\n".join(tree_lines)
+        return "\n".join(tree_output)

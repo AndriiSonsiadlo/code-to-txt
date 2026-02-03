@@ -4,8 +4,8 @@ from typing import Any
 import yaml
 
 DEFAULT_CONFIG = {
-    "output": "code_output.txt",
-    "extensions": None,  # None means use defaults
+    "output": "code-to-txt.txt",
+    "extensions": None,
     "exclude": [
         "tests/*",
         "*.test.js",
@@ -13,13 +13,14 @@ DEFAULT_CONFIG = {
         "*.spec.js",
         "*.spec.ts",
     ],
-    "glob": [],  # e.g., ["*.py", "src/**/*.js"]
+    "glob": [],
     "no_gitignore": False,
     "no_tree": False,
     "separator": "=" * 80,
     "clipboard": False,
     "clipboard_only": False,
-    "timestamp": False,
+    "timestamp": True,
+    "max_file_size": None,
 }
 
 
@@ -31,7 +32,7 @@ def load_config(config_path: str) -> dict[str, Any]:
         config_path: Path to the configuration file
 
     Returns:
-        Dictionary with configuration values
+        Dictionary with validated configuration values
     """
     path = Path(config_path)
 
@@ -75,6 +76,9 @@ def load_config(config_path: str) -> dict[str, Any]:
         if field in config:
             validated_config[field] = bool(config[field])
 
+    if "max_file_size" in config and config["max_file_size"] is not None:
+        validated_config["max_file_size"] = int(config["max_file_size"])
+
     return validated_config
 
 
@@ -91,7 +95,7 @@ def create_default_config(config_path: Path) -> None:
 
 # Output file name (supports strftime formatting)
 # Use timestamp: true to automatically add timestamp
-output: code_output.txt
+output: code-to-txt.txt
 
 # File extensions to include
 # Can be a list or space/comma-separated string
@@ -136,7 +140,9 @@ clipboard: false
 clipboard_only: false
 
 # Add timestamp to output filename
-timestamp: false
+timestamp: true
+
+max_file_size: null
 
 # Example configurations:
 #

@@ -5,15 +5,6 @@ Models (LLMs) or for easy code review and documentation.
 
 ## Features
 
-✨ **New in v0.2.0:**
-
-- 🕐 **Automatic timestamps** in output filenames
-- 📋 **Clipboard support** - copy output directly to clipboard
-- 🎯 **Better extension handling** - specify multiple extensions without repeating `-e` flag
-- 🔍 **Glob pattern support** - use patterns like `*.py` or `src/**/*.js`
-- ⚙️ **Configuration file support** - save your preferences in `.code-to-txt.yml`
-- 🚀 **Enhanced defaults** - more file types and ignore patterns out of the box
-
 **Core Features:**
 
 - 📁 Convert entire directories of code into a single text file
@@ -40,8 +31,17 @@ poetry add code-to-txt
 ### Basic Usage
 
 ```bash
-# Convert all code files in current directory with timestamp
+# Show version
+code-to-txt --version
+
+# Convert all code files with timestamp
 code-to-txt -t
+
+# Preview what would be processed
+code-to-txt --dry-run
+
+# Get codebase statistics
+code-to-txt --stats
 
 # Convert specific directory
 code-to-txt ./my-project -o project.txt
@@ -65,6 +65,9 @@ code-to-txt -g "*.py" -g "*.md"
 ### Advanced Usage
 
 ```bash
+# Limit file sizes (useful for LLM token limits)
+code-to-txt --max-file-size 500
+
 # Exclude patterns
 code-to-txt -x "tests/*" -x "*.test.js"
 
@@ -93,7 +96,7 @@ This creates `.code-to-txt.yml` with default settings:
 
 ```yaml
 # Output file name
-output: codetotxt.txt
+output: code-to-txt.txt
 
 # File extensions to include (null = use defaults)
 extensions: null
@@ -102,7 +105,12 @@ extensions: null
 exclude:
   - "tests/*"
   - "*.test.js"
+  - "*.test.ts"
+  - "*.spec.js"
+  - "*.spec.ts"
   - "node_modules/*"
+  - "__pycache__/*"
+  - "*.pyc"
 
 # Glob patterns (alternative to extensions)
 glob: [ ]
@@ -114,6 +122,7 @@ separator: "================"
 clipboard: false
 clipboard_only: false
 timestamp: false
+max_file_size: null
 ```
 
 Use the config file:
@@ -132,6 +141,7 @@ code-to-txt --config .code-to-txt.yml
 extensions: [ .py ]
 exclude: [ "tests/*", "*.pyc", "__pycache__/*", "venv/*", ".venv/*" ]
 timestamp: true
+max_file_size: 500
 ```
 
 **JavaScript/TypeScript Project:**
@@ -140,20 +150,18 @@ timestamp: true
 extensions: [ .js, .ts, .jsx, .tsx ]
 exclude: [ "node_modules/*", "dist/*", "build/*", "*.test.js", "*.spec.ts" ]
 no_tree: false
+max_file_size: 1000
 ```
 
-**C/C++ Project:**
+**LLM-Optimized:**
 
 ```yaml
-extensions: [ .c, .cpp, .h, .hpp ]
-exclude: [ "build/*", "*.o", "*.a", "cmake-build-*" ]
-```
-
-**Using Glob Patterns:**
-
-```yaml
-glob: [ "src/**/*.py", "lib/**/*.py", "*.md" ]
-extensions: null  # Ignore extensions when using glob
+extensions: [ .py, .js, .md ]
+exclude: [ "tests/*", "*.test.*", "node_modules/*", "dist/*", "build/*" ]
+timestamp: true
+clipboard: true
+max_file_size: 200
+no_tree: false
 ```
 
 ## Command Line Options
@@ -171,12 +179,16 @@ Options:
   -g, --glob TEXT         Glob patterns to include (can be used multiple times)
   --no-gitignore          Don't respect .gitignore files
   --no-tree               Don't include directory tree in output
-  --separator TEXT        Separator between files (default: ====...)
+  --separator TEXT        Separator between files
   -c, --clipboard         Copy output to clipboard in addition to file
   --clipboard-only        Copy to clipboard only (don't save file)
   --config PATH           Path to config file (.yml or .yaml)
   --init-config           Create default configuration file
   -t, --timestamp         Add timestamp to output filename
+  -v, --version           Show version and exit
+  --dry-run               Show which files would be processed
+  --stats                 Show detailed statistics
+  --max-file-size INT     Skip files larger than N KB
   --help                  Show this message and exit
 ```
 
@@ -187,15 +199,13 @@ Options:
 ```python
 from code_to_txt import CodeToText
 
-# Create instance
-code_to_text = CodeToText(
+code_to_txt = CodeToText(
     root_path="./my-project",
     output_file="output.txt",
     include_extensions={".py", ".js"},
 )
 
-# Convert to file
-num_files = code_to_text.convert(add_tree=True)
+num_files = code_to_txt.convert(add_tree=True)
 print(f"Processed {num_files} files")
 ```
 
@@ -203,21 +213,33 @@ print(f"Processed {num_files} files")
 
 ```python
 from code_to_txt import CodeToText
+import pyperclip
 
-# Generate content without writing to file
-code_to_text = CodeToText(
+code_to_txt = CodeToText(
     root_path="./my-project",
-    output_file=None,  # No file needed
+    output_file=None,
     include_extensions={".py"},
 )
 
-content = code_to_text.generate_content(add_tree=True)
-print(f"Generated {len(content)} characters")
-
-# Copy to clipboard using pyperclip
-import pyperclip
-
+content = code_to_txt.generate_content(add_tree=True)
 pyperclip.copy(content)
+```
+
+### Get Statistics
+
+```python
+from code_to_txt import CodeToText
+
+code_to_txt = CodeToText(
+    root_path="./my-project",
+    output_file=None,
+    max_file_size_kb=500,
+)
+
+stats = code_to_txt.calculate_statistics()
+print(f"Total files: {stats['total_files']}")
+print(f"Total size: {stats['total_size_bytes'] / 1024 / 1024:.2f} MB")
+print(f"Total lines: {stats['total_lines']:,}")
 ```
 
 ### Using Glob Patterns
@@ -225,32 +247,13 @@ pyperclip.copy(content)
 ```python
 from code_to_txt import CodeToText
 
-code_to_text = CodeToText(
+code_to_txt = CodeToText(
     root_path="./my-project",
     output_file="output.txt",
     glob_patterns=["*.py", "src/**/*.js", "**/*.md"],
 )
 
-num_files = code_to_text.convert()
-```
-
-### Advanced Configuration
-
-```python
-from code_to_txt import CodeToText
-
-code_to_text = CodeToText(
-    root_path="./my-project",
-    output_file="detailed_output.txt",
-    include_extensions={".py", ".js", ".ts"},
-    exclude_patterns=["tests/*", "*.test.js", "node_modules/*"],
-    gitignore=True,  # Respect .gitignore (default)
-)
-
-num_files = code_to_text.convert(
-    add_tree=True,
-    separator="=" * 100,
-)
+num_files = code_to_txt.convert()
 ```
 
 ## Default File Extensions
@@ -278,7 +281,7 @@ CodeToTxt automatically ignores common build artifacts and dependencies:
 - `.pytest_cache`, `.mypy_cache`, `.ruff_cache`
 - `*.so`, `*.dylib`, `*.dll`
 
-Plus any patterns in your `.gitignore` file.
+Plus any patterns in your `.gitignore` file (including parent directories).
 
 ## Output Format
 
@@ -330,34 +333,43 @@ if __name__ == "__main__":
 
 ## Tips & Tricks
 
+### For LLM Consumption
+
+```bash
+# Step 1: Check what you're working with
+code-to-txt --stats
+
+# Step 2: Preview files
+code-to-txt --dry-run --max-file-size 200
+
+# Step 3: Copy to clipboard with size limit
+code-to-txt --clipboard-only --max-file-size 200 -e ".py .md"
+
+# See token estimate:
+# Estimated tokens: ~95,000
+```
+
 ### For Large Projects
 
 ```bash
 # Use specific extensions to reduce size
-code-to-txt -e ".py" -t
+code-to-txt -e ".py" -t --max-file-size 500
 
 # Exclude heavy directories
 code-to-txt -x "node_modules/*" -x "venv/*" -x "dist/*"
+
+# Get statistics first
+code-to-txt --stats --max-file-size 300
 ```
 
-### For LLM Consumption
+### Debug Ignore Patterns
 
 ```bash
-# Copy directly to clipboard for pasting into ChatGPT/Claude
-code-to-txt --clipboard-only -e ".py .md"
+# See which files are being skipped and why
+code-to-txt --dry-run
 
-# Or save and copy
-code-to-txt -t -c -e ".py .js"
-```
-
-### For Specific Features
-
-```bash
-# Only include source files, exclude tests
-code-to-txt -g "src/**/*.py" -g "lib/**/*.py"
-
-# Only documentation
-code-to-txt -e ".md .rst .txt"
+# Compare with and without gitignore
+code-to-txt --dry-run --no-gitignore
 ```
 
 ## Requirements
@@ -392,6 +404,20 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 MIT License - see LICENSE file for details.
 
 ## Changelog
+
+### v0.3.0
+
+- 🔧 Refactored codebase for better maintainability
+- 📁 Externalized default extensions and ignore patterns to separate files
+- 🐛 Fixed critical gitignore bug (now checks parent directories)
+- 🔍 Improved cross-platform path handling
+- 📊 Added `--stats` flag for detailed codebase statistics
+- 🎯 Added `--dry-run` mode to preview without processing
+- 📏 Added `--max-file-size` to skip large files
+- 🔢 Added token estimation for LLM consumption
+- 📝 Added skip tracking to see which files were excluded
+- 🚀 Improved method naming and code structure
+- ✅ Enhanced test coverage
 
 ### v0.2.0
 

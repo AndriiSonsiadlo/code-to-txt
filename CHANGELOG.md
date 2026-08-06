@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1]
+
+### Changed
+- Rewrote README for clarity and tone
+- Normalized line endings to CRLF across the repository
+
 ## [0.3.0]
 
 ### Added
@@ -64,6 +70,7 @@ All notable changes to this project will be documented in this file.
 - Python API
 - CLI interface
 
+[0.3.1]: https://github.com/AndriiSonsiadlo/code-to-txt/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/AndriiSonsiadlo/code-to-txt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AndriiSonsiadlo/code-to-txt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AndriiSonsiadlo/code-to-txt/releases/tag/v0.1.0

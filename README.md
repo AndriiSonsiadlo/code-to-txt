@@ -1,18 +1,19 @@
 # CodeToTxt
 
-A powerful Python package to convert code files into a single text file, perfect for feeding into Large Language
-Models (LLMs) or for easy code review and documentation.
+CodeToTxt is a small Python tool that flattens a codebase into a single text file. It's built for feeding code into
+LLMs, but it works just as well for code review, documentation, or just having a searchable snapshot of a project.
 
 ## Features
 
-**Core Features:**
-
-- 📁 Convert entire directories of code into a single text file
-- 🌳 Optional directory tree visualization
-- 🚫 Respects `.gitignore` patterns automatically
-- 🎨 Customizable file separators and output format
-- 🔧 Flexible file filtering by extension or glob patterns
-- 📦 Easy to use CLI and Python API
+- Convert an entire directory of code into one text file
+- Optional directory tree at the top of the output
+- Respects `.gitignore` automatically (including parent directories)
+- Filter files by extension or glob pattern
+- Custom separators and output formatting
+- Copy straight to the clipboard instead of (or in addition to) writing a file
+- Dry-run and stats modes to see what you're about to process before you commit to it
+- Config file support so you don't have to repeat the same flags every time
+- Token estimate in the output, since that's usually what people actually care about
 
 ## Installation
 
@@ -26,73 +27,70 @@ Or with Poetry:
 poetry add code-to-txt
 ```
 
-## Quick Start
-
-### Basic Usage
+## Quick start
 
 ```bash
 # Show version
 code-to-txt --version
 
-# Convert all code files with timestamp
+# Convert everything in the current directory, with a timestamped filename
 code-to-txt -t
 
-# Preview what would be processed
+# See what would be processed without writing anything
 code-to-txt --dry-run
 
-# Get codebase statistics
+# Get a quick summary of the codebase
 code-to-txt --stats
 
-# Convert specific directory
+# Convert a specific directory
 code-to-txt ./my-project -o project.txt
 
-# Copy to clipboard instead of saving
+# Skip the file and just copy the result to the clipboard
 code-to-txt --clipboard-only
 ```
 
-### Specify File Types
+### Choosing file types
 
 ```bash
-# Multiple extensions (space or comma separated)
+# Multiple extensions (space or comma separated, both work)
 code-to-txt -e ".py .js .ts"
 code-to-txt -e ".py,.js,.ts"
 
-# Using glob patterns
+# Or use glob patterns instead
 code-to-txt -g "*.py" -g "src/**/*.js"
-code-to-txt -g "*.py" -g "*.md"
 ```
 
-### Advanced Usage
+### More options
 
 ```bash
-# Limit file sizes (useful for LLM token limits)
+# Skip files above a certain size (handy for staying under token limits)
 code-to-txt --max-file-size 500
 
-# Exclude patterns
+# Exclude specific patterns
 code-to-txt -x "tests/*" -x "*.test.js"
 
-# Don't use .gitignore
+# Ignore .gitignore entirely
 code-to-txt --no-gitignore
 
-# Don't show directory tree
+# Leave out the directory tree
 code-to-txt --no-tree
 
-# Custom separator
+# Use a different separator between files
 code-to-txt --separator "---"
 
-# Combine options
+# Combine whatever you need
 code-to-txt -t -c -e ".py .js" -x "tests/*"
 ```
 
-## Configuration File
+## Configuration file
 
-Create a default configuration file:
+Rather than typing the same flags every time, you can generate a config file:
 
 ```bash
 code-to-txt --init-config
 ```
 
-This creates `.code-to-txt.yml` with default settings:
+This creates `.code-to-txt.yml`:
 
 ```yaml
 # Output file name
@@ -113,7 +111,7 @@ exclude:
   - "*.pyc"
 
 # Glob patterns (alternative to extensions)
-glob: [ ]
+glob: []
 
 # Options
 no_gitignore: false
@@ -121,21 +119,21 @@ no_tree: false
 separator: "================"
 clipboard: false
 clipboard_only: false
-timestamp: false
+timestamp: true
 max_file_size: null
 ```
 
-Use the config file:
+Then point the CLI at it:
 
 ```bash
 code-to-txt --config .code-to-txt.yml
 ```
 
-**Note:** CLI arguments override config file settings.
+Any CLI flag you pass will override the matching setting in the config file.
 
-### Example Configurations
+### A few example configs
 
-**Python Project:**
+**Python project:**
 
 ```yaml
 extensions: [ .py ]
@@ -144,7 +142,7 @@ timestamp: true
 max_file_size: 500
 ```
 
-**JavaScript/TypeScript Project:**
+**JavaScript/TypeScript project:**
 
 ```yaml
 extensions: [ .js, .ts, .jsx, .tsx ]
@@ -153,7 +151,7 @@ no_tree: false
 max_file_size: 1000
 ```
 
-**LLM-Optimized:**
+**Tuned for LLM input:**
 
 ```yaml
 extensions: [ .py, .js, .md ]
@@ -164,7 +162,7 @@ max_file_size: 200
 no_tree: false
 ```
 
-## Command Line Options
+## Command line options
 
 ```
 Usage: code-to-txt [OPTIONS] [PATH]
@@ -192,9 +190,11 @@ Options:
   --help                  Show this message and exit
 ```
 
-## Python API
+## Using it as a library
 
-### Basic Usage
+You don't need the CLI. Everything is available directly from the `CodeToText` class.
+
+### Basic conversion
 
 ```python
 from code_to_txt import CodeToText
@@ -209,7 +209,7 @@ num_files = code_to_txt.convert(add_tree=True)
 print(f"Processed {num_files} files")
 ```
 
-### Generate Content for Clipboard
+### Generating content without writing to disk
 
 ```python
 from code_to_txt import CodeToText
@@ -225,7 +225,7 @@ content = code_to_txt.generate_content(add_tree=True)
 pyperclip.copy(content)
 ```
 
-### Get Statistics
+### Getting statistics
 
 ```python
 from code_to_txt import CodeToText
@@ -242,7 +242,7 @@ print(f"Total size: {stats['total_size_bytes'] / 1024 / 1024:.2f} MB")
 print(f"Total lines: {stats['total_lines']:,}")
 ```
 
-### Using Glob Patterns
+### Using glob patterns
 
 ```python
 from code_to_txt import CodeToText
@@ -256,22 +256,23 @@ code_to_txt = CodeToText(
 num_files = code_to_txt.convert()
 ```
 
-## Default File Extensions
+## Default file extensions
 
-When no extensions are specified, CodeToTxt includes these file types by default:
+If you don't specify extensions or glob patterns, CodeToTxt includes these by default:
 
-- **Python:** `.py`
-- **JavaScript/TypeScript:** `.js`, `.ts`, `.jsx`, `.tsx`
-- **Systems:** `.c`, `.cpp`, `.h`, `.hpp`, `.java`, `.cs`, `.go`, `.rs`
-- **Web:** `.html`, `.css`, `.scss`
-- **Config:** `.yaml`, `.yml`, `.json`, `.toml`, `.xml`
-- **Documentation:** `.md`, `.txt`, `.rst`
-- **Scripts:** `.sh`, `.bash`, `.zsh`
-- **Other:** `.rb`, `.php`, `.swift`, `.kt`, `.scala`, `.r`, `.sql`
+- Python: `.py`
+- JavaScript/TypeScript: `.js`, `.ts`, `.jsx`, `.tsx`
+- Systems languages: `.c`, `.cpp`, `.h`, `.hpp`, `.java`, `.cs`, `.go`, `.rs`
+- Web: `.html`, `.css`, `.scss`
+- Config: `.yaml`, `.yml`, `.json`, `.toml`, `.xml`
+- Docs: `.md`, `.txt`, `.rst`
+- Scripts: `.sh`, `.bash`, `.zsh`
+- Other: `.rb`, `.php`, `.swift`, `.kt`, `.scala`, `.r`, `.sql`
 
-## Default Ignore Patterns
+## Default ignore patterns
 
-CodeToTxt automatically ignores common build artifacts and dependencies:
+These are excluded automatically, on top of whatever's in your `.gitignore` (parent directories included, up to five
+levels up):
 
 - `__pycache__`, `*.pyc`, `*.pyo`, `*.pyd`
 - `.git`, `.svn`, `.hg`
@@ -281,17 +282,15 @@ CodeToTxt automatically ignores common build artifacts and dependencies:
 - `.pytest_cache`, `.mypy_cache`, `.ruff_cache`
 - `*.so`, `*.dylib`, `*.dll`
 
-Plus any patterns in your `.gitignore` file (including parent directories).
+## Output format
 
-## Output Format
+The generated file has three parts:
 
-The generated file includes:
+1. A header with the source directory and total file count
+2. An optional directory tree
+3. Each file's contents, labeled with its relative path
 
-1. **Header:** Source directory and file count
-2. **Directory Tree:** Visual representation of the file structure (optional)
-3. **File Contents:** Each file with its relative path and content
-
-Example output:
+For example:
 
 ```
 Code Export from: /path/to/project
@@ -322,53 +321,50 @@ if __name__ == "__main__":
 ...
 ```
 
-## Use Cases
+## Where this is useful
 
-- 📚 **Code Review:** Share entire codebase in a single file
-- 🤖 **LLM Input:** Feed code to ChatGPT, Claude, or other AI assistants
-- 📖 **Documentation:** Create comprehensive code documentation
-- 🔍 **Code Search:** Easy text-based search across entire project
-- 📊 **Analysis:** Input for code analysis tools
-- 💾 **Archival:** Simple code backup format
+- Sharing a whole codebase with someone in one file, for review
+- Feeding a project into ChatGPT, Claude, or another AI assistant
+- Generating a quick reference document for a project
+- Doing plain-text search across an entire codebase at once
+- Producing input for other code analysis tools
+- Keeping a simple, flat backup of a project's source
 
-## Tips & Tricks
+## Tips
 
-### For LLM Consumption
+### Preparing input for an LLM
 
 ```bash
-# Step 1: Check what you're working with
+# See what you're dealing with first
 code-to-txt --stats
 
-# Step 2: Preview files
+# Preview with a size cap
 code-to-txt --dry-run --max-file-size 200
 
-# Step 3: Copy to clipboard with size limit
+# Then copy it straight to the clipboard
 code-to-txt --clipboard-only --max-file-size 200 -e ".py .md"
-
-# See token estimate:
-# Estimated tokens: ~95,000
 ```
 
-### For Large Projects
+### Working with large projects
 
 ```bash
-# Use specific extensions to reduce size
+# Narrow it down to the extensions you actually care about
 code-to-txt -e ".py" -t --max-file-size 500
 
-# Exclude heavy directories
+# Cut out the usual heavy directories
 code-to-txt -x "node_modules/*" -x "venv/*" -x "dist/*"
 
-# Get statistics first
+# Check the size before generating anything
 code-to-txt --stats --max-file-size 300
 ```
 
-### Debug Ignore Patterns
+### Debugging what's being skipped
 
 ```bash
-# See which files are being skipped and why
+# See exactly which files are excluded and why
 code-to-txt --dry-run
 
-# Compare with and without gitignore
+# Compare with .gitignore turned off
 code-to-txt --dry-run --no-gitignore
 ```
 
@@ -380,7 +376,7 @@ code-to-txt --dry-run --no-gitignore
 ## Development
 
 ```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/AndriiSonsiadlo/code-to-txt.git
 cd code-to-txt
 
@@ -397,46 +393,16 @@ poetry run mypy src/
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. Feel free to open a pull request.
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License. See the LICENSE file for details.
 
 ## Changelog
 
-### v0.3.0
+See [CHANGELOG.md](CHANGELOG.md) for the full history of changes.
 
-- 🔧 Refactored codebase for better maintainability
-- 📁 Externalized default extensions and ignore patterns to separate files
-- 🐛 Fixed critical gitignore bug (now checks parent directories)
-- 🔍 Improved cross-platform path handling
-- 📊 Added `--stats` flag for detailed codebase statistics
-- 🎯 Added `--dry-run` mode to preview without processing
-- 📏 Added `--max-file-size` to skip large files
-- 🔢 Added token estimation for LLM consumption
-- 📝 Added skip tracking to see which files were excluded
-- 🚀 Improved method naming and code structure
-- ✅ Enhanced test coverage
+## Author
 
-### v0.2.0
-
-- ✨ Added automatic timestamp generation for output files
-- 📋 Added clipboard support (`--clipboard` and `--clipboard-only`)
-- 🎯 Improved extension handling (space/comma separated)
-- 🔍 Added glob pattern support
-- ⚙️ Added configuration file support (`.code-to-txt.yml`)
-- 🚀 Expanded default file extensions and ignore patterns
-- 🐛 Various bug fixes and improvements
-
-### v0.1.0
-
-- 🎉 Initial release
-- 📁 Basic directory to text conversion
-- 🌳 Directory tree generation
-- 🚫 .gitignore support
-- 🎨 Customizable separators
-
-## Acknowledgments
-
-Created by Andrii Sonsiadlo
+Created by Andrii Sonsiadlo.
